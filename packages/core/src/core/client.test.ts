@@ -10,8 +10,8 @@ import {
   Chat,
   EmbedContentResponse,
   GenerateContentResponse,
-  GoogleGenAI,
 } from '@google/genai';
+import { OpenAICompatibleContentGenerator } from './openAICompatibleContentGenerator.js';
 import { GeminiClient } from './client.js';
 import { AuthType, ContentGenerator } from './contentGenerator.js';
 import { GeminiChat } from './geminiChat.js';
@@ -28,7 +28,7 @@ const mockGenerateContentFn = vi.fn();
 const mockEmbedContentFn = vi.fn();
 const mockTurnRunFn = vi.fn();
 
-vi.mock('@google/genai');
+vi.mock('./openAICompatibleContentGenerator.js');
 vi.mock('./turn', () => {
   // Define a mock class that has the same shape as the real Turn
   class MockTurn {
@@ -72,19 +72,16 @@ describe('Gemini Client (client.ts)', () => {
     // Disable 429 simulation for tests
     setSimulate429(false);
 
-    // Set up the mock for GoogleGenAI constructor and its methods
-    const MockedGoogleGenAI = vi.mocked(GoogleGenAI);
-    MockedGoogleGenAI.mockImplementation(() => {
-      const mock = {
-        chats: { create: mockChatCreateFn },
-        models: {
+    const MockedGenerator = vi.mocked(OpenAICompatibleContentGenerator);
+    MockedGenerator.mockImplementation(
+      () =>
+        ({
           generateContent: mockGenerateContentFn,
+          generateContentStream: vi.fn(),
+          countTokens: vi.fn(),
           embedContent: mockEmbedContentFn,
-        },
-      };
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return mock as any;
-    });
+        }) as unknown as OpenAICompatibleContentGenerator,
+    );
 
     mockChatCreateFn.mockResolvedValue({} as Chat);
     mockGenerateContentFn.mockResolvedValue({
@@ -135,7 +132,7 @@ describe('Gemini Client (client.ts)', () => {
     });
 
     // We can instantiate the client here since Config is mocked
-    // and the constructor will use the mocked GoogleGenAI
+    // and the constructor will use the mocked OpenAICompatibleContentGenerator
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const mockConfig = new Config({} as any);
     client = new GeminiClient(mockConfig);
