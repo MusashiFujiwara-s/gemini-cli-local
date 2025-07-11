@@ -77,16 +77,37 @@ export class OpenAICompatibleContentGenerator implements ContentGenerator {
   private convertToOpenAIMessages(
     contents: ContentListUnion,
   ): Array<Record<string, unknown>> {
-    // Handle string input
-    if (typeof contents === 'string') {
-      return [{ role: 'user', content: contents }];
-    }
-
-    // Handle single Content object
-    if (!Array.isArray(contents)) {
-      const content = contents as Content;
+    const convertSingle = (
+      content: Content,
+    ): Array<Record<string, unknown>> => {
       const role = content.role === 'model' ? 'assistant' : content.role;
       const parts = content.parts || [];
+
+      // Handle function response parts -> tool messages
+      if (role === 'tool') {
+        const fr = parts.find((p) => 'functionResponse' in p)?.functionResponse;
+        if (fr) {
+          let text = '';
+          const responseContent = fr.response?.content;
+          if (Array.isArray(responseContent)) {
+            text = responseContent
+              .filter((p: Part) => 'text' in p)
+              .map((p: Part & { text?: string }) => p.text ?? '')
+              .join('\n');
+          } else if (typeof responseContent === 'string') {
+            text = responseContent;
+          } else if (responseContent !== undefined) {
+            text = JSON.stringify(responseContent);
+          }
+          return [
+            {
+              role: 'tool',
+              content: text,
+              tool_call_id: fr.id,
+            },
+          ];
+        }
+      }
 
       const textParts = parts
         .filter((part: Part) => 'text' in part)
@@ -99,24 +120,18 @@ export class OpenAICompatibleContentGenerator implements ContentGenerator {
           content: textParts,
         },
       ];
+    };
+
+    // Handle string input
+    if (typeof contents === 'string') {
+      return [{ role: 'user', content: contents }];
     }
 
-    // Handle array of Content objects
-    return contents.map((content: Content) => {
-      const role = content.role === 'model' ? 'assistant' : content.role;
-      const parts = content.parts || [];
+    if (!Array.isArray(contents)) {
+      return convertSingle(contents as Content);
+    }
 
-      // Combine all text parts into a single message
-      const textParts = parts
-        .filter((part: Part) => 'text' in part)
-        .map((part: Part & { text?: string }) => part.text ?? '')
-        .join('\n');
-
-      return {
-        role,
-        content: textParts,
-      };
-    });
+    return contents.flatMap((c) => convertSingle(c as Content));
   }
 
   private convertFromOpenAIResponse(
@@ -254,6 +269,7 @@ export class OpenAICompatibleContentGenerator implements ContentGenerator {
             parameters: fd.parameters,
           },
         }));
+        openAIRequest['tool_choice'] = 'auto';
       }
     }
 
@@ -270,9 +286,17 @@ export class OpenAICompatibleContentGenerator implements ContentGenerator {
       });
 
       if (!response.ok) {
-        throw new Error(
-          `OpenAI API error: ${response.status} ${response.statusText}`,
-        );
+        const bodyText = await response.text();
+        let msg = `OpenAI API error: ${response.status} ${response.statusText}`;
+        if (bodyText) {
+          try {
+            const err = JSON.parse(bodyText);
+            msg += ` - ${err.error?.message ?? bodyText}`;
+          } catch {
+            msg += ` - ${bodyText}`;
+          }
+        }
+        throw new Error(msg);
       }
 
       const openAIResponse = await response.json();
@@ -333,9 +357,17 @@ export class OpenAICompatibleContentGenerator implements ContentGenerator {
       });
 
       if (!response.ok) {
-        throw new Error(
-          `OpenAI API error: ${response.status} ${response.statusText}`,
-        );
+        const bodyText = await response.text();
+        let msg = `OpenAI API error: ${response.status} ${response.statusText}`;
+        if (bodyText) {
+          try {
+            const err = JSON.parse(bodyText);
+            msg += ` - ${err.error?.message ?? bodyText}`;
+          } catch {
+            msg += ` - ${bodyText}`;
+          }
+        }
+        throw new Error(msg);
       }
 
       const reader = response.body?.getReader();
@@ -403,17 +435,43 @@ export class OpenAICompatibleContentGenerator implements ContentGenerator {
     } else if (Array.isArray(request.contents)) {
       text = request.contents
         .flatMap((content: Content) => content.parts || [])
-        .filter((part: Part) => 'text' in part)
-        .map((part: Part & { text?: string }) => part.text ?? '')
+        .map((part: Part) => {
+          if ('text' in part)
+            return (part as Part & { text?: string }).text ?? '';
+          if ('functionResponse' in part) {
+            const rc = part.functionResponse?.response?.content;
+            if (Array.isArray(rc)) {
+              return rc
+                .filter((p: Part) => 'text' in p)
+                .map((p: Part & { text?: string }) => p.text ?? '')
+                .join(' ');
+            }
+            if (typeof rc === 'string') return rc;
+            if (rc !== undefined) return JSON.stringify(rc);
+          }
+          return '';
+        })
         .join(' ');
     } else {
-      // Single Content object
       const content = request.contents as Content;
-      text =
-        content.parts
-          ?.filter((part: Part) => 'text' in part)
-          .map((part: Part & { text?: string }) => part.text ?? '')
-          .join(' ') || '';
+      text = (content.parts || [])
+        .map((part: Part) => {
+          if ('text' in part)
+            return (part as Part & { text?: string }).text ?? '';
+          if ('functionResponse' in part) {
+            const rc = part.functionResponse?.response?.content;
+            if (Array.isArray(rc)) {
+              return rc
+                .filter((p: Part) => 'text' in p)
+                .map((p: Part & { text?: string }) => p.text ?? '')
+                .join(' ');
+            }
+            if (typeof rc === 'string') return rc;
+            if (rc !== undefined) return JSON.stringify(rc);
+          }
+          return '';
+        })
+        .join(' ');
     }
 
     // Rough approximation: 1 token ≈ 4 characters
