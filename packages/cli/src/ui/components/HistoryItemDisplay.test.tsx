@@ -71,7 +71,7 @@ describe('<HistoryItemDisplay />', () => {
     const { lastFrame } = render(
       <HistoryItemDisplay {...baseItem} item={item} />,
     );
-    expect(lastFrame()).toContain('About Gemini CLI');
+    expect(lastFrame()).toContain('About Gemma CLI');
   });
 
   it('renders SessionSummaryDisplay for "quit" type', () => {

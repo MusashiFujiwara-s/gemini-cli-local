@@ -106,7 +106,7 @@ export async function createContentGeneratorConfig(
 }
 
 export async function createContentGenerator(
-  config: ContentGeneratorConfig,
+  _config: ContentGeneratorConfig,
 ): Promise<ContentGenerator> {
   // Always use local LLM (Ollama)
   return new OpenAICompatibleContentGenerator({
