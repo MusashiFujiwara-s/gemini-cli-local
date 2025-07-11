@@ -20,6 +20,7 @@
     "clean": "node scripts/clean.js",
     "prepare": "npm run bundle",
     "test": "npm run test --workspaces",
+    "pretest:ci": "npm run build:packages",
     "test:ci": "npm run test:ci --workspaces --if-present",
     "test:e2e": "npm run test:integration:sandbox:none -- --verbose --keep-output",
     "test:integration:all": "npm run test:integration:sandbox:none && npm run test:integration:sandbox:docker && npm run test:integration:sandbox:podman",
